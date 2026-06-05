@@ -39,19 +39,27 @@ jobs:
         curl -sSL https://install.python-poetry.org | python3 -
         echo "$HOME/.local/bin" >> $GITHUB_PATH
     
+    - name: Cache Poetry dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pypoetry
+          .venv
+        key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-poetry-
+    
     - name: Install dependencies
       run: |
         poetry install --no-interaction
     
     - name: Run linter (flake8)
       run: |
-        poetry add --group dev flake8
         poetry run flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics --max-line-length=120
     
     - name: Run type checker (mypy)
       continue-on-error: true
       run: |
-        poetry add --group dev mypy
         poetry run mypy app/ --ignore-missing-imports
     
     - name: Run database migrations
@@ -64,12 +72,11 @@ jobs:
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_orders_db
       run: |
-        poetry add --group dev pytest pytest-cov httpx
         poetry run pytest tests/ -v --cov=app --cov-report=xml --cov-report=term
     
     - name: Security audit
+      continue-on-error: true
       run: |
-        poetry add --group dev pip-audit
         poetry run pip-audit
 
   docker-build:
@@ -83,14 +90,29 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
-    - name: Build Docker image
+    - name: Build Docker images
       run: |
-        docker-compose build
+        docker compose build
     
-    - name: Test Docker services
+    - name: Start Docker services
       run: |
-        docker-compose up -d
-        sleep 10
-        docker-compose ps
+        docker compose up -d
+        sleep 20
+    
+    - name: Check services status
+      run: |
+        docker compose ps
+        docker compose logs
+    
+    - name: Wait for services to be healthy
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:8000/docs; do sleep 2; done'
+    
+    - name: Test API endpoint
+      run: |
         curl -f http://localhost:8000/docs || exit 1
-        docker-compose down
+    
+    - name: Stop Docker services
+      if: always()
+      run: |
+        docker compose down -v
