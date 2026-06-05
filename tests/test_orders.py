@@ -13,5 +13,4 @@ def test_read_docs():
 def test_health_check():
     """Test health check endpoint si existe"""
     response = client.get("/")
-    # Ajusta según tu endpoint root
     assert response.status_code in [200, 404]
